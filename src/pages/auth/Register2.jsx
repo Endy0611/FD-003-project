@@ -1,5 +1,5 @@
 import { useForm } from "react-hook-form";
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FaRegEyeSlash } from "react-icons/fa";
 import { PiEye } from "react-icons/pi";
 import { z } from "zod";
@@ -8,216 +8,269 @@ import { useUploadFileMutation } from "../../features/file/fileSlice";
 import { useRegisterMutation } from "../../features/auth/authSlide";
 
 const schema = z.object({
-  name: z
-    .string()
-    .nonempty("name is required"),
-  email: z.string().nonempty("email is required").email("invalid email"),
+  name: z.string().nonempty("Name is required"),
+  email: z.string().nonempty("Email is required").email("Invalid email"),
   password: z
     .string()
-    .nonempty("password is required")
-    .min(4, "password must be eqaul or greater than 4 letters")
+    .nonempty("Password is required")
+    .min(4, "Password must be at least 4 characters"),
 });
 
 export default function Register2() {
   const [uploadFile] = useUploadFileMutation();
   const [registerUser] = useRegisterMutation();
+
   const [isShowPassword, setIsShowPassword] = useState(false);
-  const [image, setImage] = useState(null); // store image meta
-  const [preview, setPreview] = useState(null); // object url
+  const [image, setImage] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const fileInputRef = useRef(null);
 
   const {
     register,
     handleSubmit,
-    formState: { errors }
+    formState: { errors },
+    setError,
+    clearErrors,
   } = useForm({
     defaultValues: {
       name: "dara",
       email: "dara@gmail.com",
       password: "qwer",
-      avatar: ""
+      avatar: "",
     },
-    resolver: zodResolver(schema)
+    resolver: zodResolver(schema),
   });
 
-  //   handle preview image
-  const handelImagePreview = (e) => {
-    const file = e.target.files[0];
+  // cleanup blob URL
+  useEffect(() => {
+    return () => {
+      if (preview && preview.startsWith("blob:")) URL.revokeObjectURL(preview);
+    };
+  }, [preview]);
 
+  const onPickFile = () => fileInputRef.current?.click();
+
+  const handleImagePreview = (e) => {
+    const file = e.target.files?.[0];
     if (!file) return;
 
+    // validate image
+    const isImage = /^image\/(png|jpe?g|webp)$/i.test(file.type);
+    const under2MB = file.size <= 2 * 1024 * 1024;
+
+    if (!isImage) {
+      setError("avatar", { message: "Only JPG, PNG, or WEBP allowed" });
+      return;
+    }
+    if (!under2MB) {
+      setError("avatar", { message: "Image must be ≤ 2MB" });
+      return;
+    }
+
+    clearErrors("avatar");
     setImage(file);
+    if (preview && preview.startsWith("blob:")) URL.revokeObjectURL(preview);
     setPreview(URL.createObjectURL(file));
   };
 
-  console.log(preview);
-
   const onSubmit = async (data) => {
-    const formdata = new FormData();
-    formdata.append("file", image);
-
-    console.log("formdata", formdata);
     try {
-      const fileRes = await uploadFile(formdata).unwrap();
-      console.log("upload image", image);
+      setSubmitting(true);
 
-      const submitData = {
-        ...data,
-        avatar: fileRes.location
-      };
+      let avatarUrl = undefined;
+      if (image) {
+        const fd = new FormData();
+        fd.append("file", image);
+        const fileRes = await uploadFile(fd).unwrap();
+        // NOTE: your API returns { location } or { uri } — adjust if needed:
+        avatarUrl = fileRes.location || fileRes.uri;
+      }
 
-      console.log(submitData);
+      const submitData = { ...data, avatar: avatarUrl };
       await registerUser(submitData).unwrap();
-    } catch (e) {
-      console.log(e);
-      console.log("upload image", image);
-    }
 
-    // console.log(fileRes);
+      // success UX: you can route or show a toast
+      alert("Registered successfully ✅");
+    } catch (e) {
+      console.error(e);
+      alert("Registration failed. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  return (
-    <form
-      onSubmit={handleSubmit(onSubmit)}
-      className="w-1/2 bg-gray-100 p-10 rounded-3xl"
-    >
-      <h1 className="text-3xl font-bold text-center text-teal-600">Register</h1>
+  // Derived UI labels
+  const avatarLabel = useMemo(() => (preview ? "Change" : "Upload"), [preview]);
 
-      {/* preview */}
-      {!(preview == null) && (
-        <div class=" flex items-center justify-center w-[200px] h-[200px]">
-          <label
-            for="dropzone-file"
-            class="relative z-10 w-full h-full flex flex-col items-center justify-center  border-2 border-gray-300 border-dashed rounded-full cursor-pointer bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:hover:border-gray-500"
-          >
-            <div class="flex flex-col items-center justify-center pt-5 pb-6">
-              <svg
-                class="w-8 h-8 mb-4 text-gray-500 dark:text-gray-400"
-                aria-hidden="true"
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 20 16"
-              >
-                <path
-                  stroke="currentColor"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M13 13h3a3 3 0 0 0 0-6h-.025A5.56 5.56 0 0 0 16 6.5 5.5 5.5 0 0 0 5.207 5.021C5.137 5.017 5.071 5 5 5a4 4 0 0 0 0 8h2.167M10 15V6m0 0L8 8m2-2 2 2"
-                />
-              </svg>
-              <p class="mb-2 text-sm text-gray-500 dark:text-gray-400">
-                <span class="font-semibold">Upload profile</span>
-              </p>
-            </div>
-            <input
-              {...register("avatar")}
-              onChange={(e) => handelImagePreview(e)}
-              id="dropzone-file"
-              accept="image/jpeg,image/png,image/webp,image/jpg"
-              type="file"
-              class="hidden"
-            />
-            <img
-              className="absolute w-[200px] h-[200px] rounded-full"
-              src={preview}
-              alt="preview image"
-            />
-          </label>
-        </div>
-      )}
-      {/* upload image */}
-      {preview == null && (
-        <div class="flex items-center justify-center w-[200px] h-[200px]">
-          <label
-            for="dropzone-file"
-            class="w-full h-full flex flex-col items-center justify-center  border-2 border-gray-300 border-dashed rounded-full cursor-pointer bg-gray-50 dark:hover:bg-gray-800 dark:bg-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:hover:border-gray-500"
-          >
-            <div class="flex flex-col items-center justify-center pt-5 pb-6">
-              <svg
-                class="w-8 h-8 mb-4 text-gray-500 dark:text-gray-400"
-                aria-hidden="true"
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 20 16"
-              >
-                <path
-                  stroke="currentColor"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M13 13h3a3 3 0 0 0 0-6h-.025A5.56 5.56 0 0 0 16 6.5 5.5 5.5 0 0 0 5.207 5.021C5.137 5.017 5.071 5 5 5a4 4 0 0 0 0 8h2.167M10 15V6m0 0L8 8m2-2 2 2"
-                />
-              </svg>
-              <p class="mb-2 text-sm text-gray-500 dark:text-gray-400">
-                <span class="font-semibold">Upload profile</span>
-              </p>
-            </div>
-            <input
-              {...register("avatar")}
-              onChange={(e) => handelImagePreview(e)}
-              id="dropzone-file"
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/jpg"
-              class="hidden"
-            />
-          </label>
-        </div>
-      )}
-
-      <div class="mb-5">
-        <label
-          for="name"
-          class="block mb-2 text-sm font-medium text-gray-900 dark:text-white"
-        >
-          Your name
-        </label>
-        <input
-          {...register("name")}
-          type="text"
-          id="name"
-          class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
-          placeholder="Enter name"
-        />
-        {errors.name && (
-          <span className="text-red-600 mt-2">{errors.name.message}</span>
-        )}
-      </div>
-      <div className="flex flex-col mb-5">
-        <input
-          {...register("email")}
-          className="px-2.5 py-2.5 border border-slate-400 rounded-xl"
-          placeholder="email"
-          type="text"
-        />
-        {errors.email && (
-          <span className="text-red-600 mt-2">{errors.email.message}</span>
-        )}
-      </div>
-      <div className="flex flex-col relative mb-5">
-        <div
-          onClick={() => setIsShowPassword(!isShowPassword)}
-          className="absolute top-4 right-4"
-        >
-          {isShowPassword ? <PiEye /> : <FaRegEyeSlash />}
-          {/* <PiEye /> */}
-        </div>
-        <input
-          {...register("password")}
-          className="px-2.5 py-2.5 border border-slate-400 rounded-xl"
-          type={isShowPassword ? "text" : "password"}
-          placeholder="Password"
-        />
-        {errors.password && (
-          <span className="text-red-600 mt-2">{errors.password.message}</span>
-        )}
-      </div>
-
-      <button
-        type="submit"
-        class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm w-full sm:w-auto px-5 py-2.5 text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800"
+   return (
+    <div className="min-h-[90vh] w-full flex items-center justify-center px-4 py-10 bg-gray-50 dark:bg-gray-950">
+      <form
+        onSubmit={handleSubmit(onSubmit)}
+        className="w-full max-w-2xl rounded-2xl border border-gray-200 bg-white p-6 shadow-lg dark:border-gray-800 dark:bg-gray-900"
       >
-        Submit
-      </button>
-    </form>
+        {/* Header */}
+        <div className="mb-6 text-center">
+          <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">
+            Create your account
+          </h1>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            Join and start managing your profile in seconds.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-[200px,1fr]">
+          {/* Avatar */}
+          <div className="flex md:block justify-center">
+            <div className="relative h-48 w-48">
+              <button
+                type="button"
+                onClick={onPickFile}
+                className="group relative h-48 w-48 overflow-hidden rounded-full ring-1 ring-gray-200 bg-gray-100 dark:bg-gray-800 dark:ring-gray-700 focus:outline-none focus:ring-2 focus:ring-green-500"
+                aria-label={`${avatarLabel} profile image`}
+              >
+                {preview ? (
+                  <img
+                    src={preview}
+                    alt="Avatar preview"
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="h-full w-full flex items-center justify-center">
+                    <svg
+                      className="h-10 w-10 text-gray-400 dark:text-gray-500"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                    >
+                      <path
+                        d="M12 15a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                      />
+                      <path
+                        d="M20 21a8 8 0 1 0-16 0"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </div>
+                )}
+                <div className="absolute inset-0 bg-black/0 transition group-hover:bg-black/30" />
+                <span className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-white/90 px-3 py-1 text-xs font-medium text-gray-900 shadow-sm ring-1 ring-gray-200 backdrop-blur-sm group-hover:bg-white dark:bg-gray-800/90 dark:text-gray-100 dark:ring-gray-700">
+                  {avatarLabel} photo
+                </span>
+              </button>
+              <input
+                {...register("avatar")}
+                ref={fileInputRef}
+                onChange={handleImagePreview}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/jpg"
+                className="hidden"
+              />
+            </div>
+          </div>
+
+          {/* Fields */}
+          <div className="space-y-4">
+            <div>
+              <label
+                htmlFor="name"
+                className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
+                Full name
+              </label>
+              <input
+                {...register("name")}
+                id="name"
+                type="text"
+                placeholder="Enter your name"
+                className={`block w-full rounded-lg border bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 dark:bg-gray-900 dark:text-gray-100 ${
+                  errors.name
+                    ? "border-red-400 focus:ring-red-500"
+                    : "border-gray-300 dark:border-gray-700"
+                }`}
+              />
+              {errors.name && (
+                <p className="mt-1 text-xs text-red-600">{errors.name.message}</p>
+              )}
+            </div>
+
+            <div>
+              <label
+                htmlFor="email"
+                className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
+                Email
+              </label>
+              <input
+                {...register("email")}
+                id="email"
+                type="email"
+                placeholder="you@example.com"
+                className={`block w-full rounded-lg border bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 dark:bg-gray-900 dark:text-gray-100 ${
+                  errors.email
+                    ? "border-red-400 focus:ring-red-500"
+                    : "border-gray-300 dark:border-gray-700"
+                }`}
+              />
+              {errors.email && (
+                <p className="mt-1 text-xs text-red-600">{errors.email.message}</p>
+              )}
+            </div>
+
+            <div>
+              <label
+                htmlFor="password"
+                className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
+                Password
+              </label>
+              <div className="relative">
+                <input
+                  {...register("password")}
+                  id="password"
+                  type={isShowPassword ? "text" : "password"}
+                  placeholder="••••••••"
+                  className={`block w-full rounded-lg border bg-white px-3 py-2.5 pr-10 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 dark:bg-gray-900 dark:text-gray-100 ${
+                    errors.password
+                      ? "border-red-400 focus:ring-red-500"
+                      : "border-gray-300 dark:border-gray-700"
+                  }`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setIsShowPassword((s) => !s)}
+                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                >
+                  {isShowPassword ? <PiEye /> : <FaRegEyeSlash />}
+                </button>
+              </div>
+              {errors.password && (
+                <p className="mt-1 text-xs text-red-600">{errors.password.message}</p>
+              )}
+            </div>
+
+            {errors.avatar?.message && (
+              <p className="mt-1 text-xs text-red-600">{errors.avatar.message}</p>
+            )}
+
+            <button
+              type="submit"
+              disabled={submitting}
+              className="mt-2 inline-flex w-full items-center justify-center rounded-lg bg-green-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-green-700 focus:outline-none focus:ring-4 focus:ring-green-200 disabled:opacity-70 dark:bg-green-600 dark:hover:bg-green-700 dark:focus:ring-green-800"
+            >
+              {submitting ? "Creating account…" : "Create account"}
+            </button>
+
+            <p className="text-[11px] text-gray-500 dark:text-gray-400">
+              By continuing, you agree to our Terms and acknowledge the Privacy Policy.
+            </p>
+          </div>
+        </div>
+      </form>
+    </div>
   );
 }

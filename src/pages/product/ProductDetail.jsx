@@ -1,207 +1,365 @@
-import { useParams } from "react-router";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useGetProductByIdQuery } from "../../features/product/productSlice2";
-import React, { useState } from "react";
 
-const ProductDetail = () => {
-  const [rotate, setRotate] = useState(false);
-  const [count, setCount] = useState(0);
+const fmt = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+const currency = (n) => fmt.format(Number.isFinite(+n) ? +n : 0);
+
+const FALLBACK_IMG = "/placeholder-image.png";
+
+export default function ProductDetail() {
+  const navigate = useNavigate();
   const { id } = useParams();
-  const { data } = useGetProductByIdQuery(id);
+  const { data, isLoading, isError, refetch, isFetching } = useGetProductByIdQuery(id);
 
-  const addCount = () => {
-    setCount((prev) => prev + 1);
+  // Build gallery: first thumbnail, then images (unique & truthy)
+  const gallery = useMemo(() => {
+    if (!data) return [];
+    const base = [];
+    if (data.thumbnail) base.push(data.thumbnail);
+    if (Array.isArray(data.images)) base.push(...data.images.filter(Boolean));
+    return Array.from(new Set(base)).filter(Boolean);
+  }, [data]);
+
+  const [activeIdx, setActiveIdx] = useState(0);
+  const [qty, setQty] = useState(1);
+
+  // Reset active image when product/gallery changes
+  useEffect(() => {
+    setActiveIdx(0);
+  }, [id, gallery.length]);
+
+  const stock = Number(data?.stockQuantity ?? 0);
+  const hasStock = stock > 0;
+
+  const priceOut = Number(data?.priceOut || 0);
+  const discountPct = Math.min(Math.max(Number(data?.discount || 0), 0), 100);
+  const hasDiscount = discountPct > 0;
+  const discounted = hasDiscount ? priceOut * (1 - discountPct / 100) : priceOut;
+
+  const clampQty = useCallback(
+    (n) => Math.min(Math.max(n, 1), Math.max(stock, 1)),
+    [stock]
+  );
+
+  const add = () => setQty((q) => clampQty(q + 1));
+  const sub = () => setQty((q) => clampQty(q - 1));
+  const onQtyChange = (e) => {
+    const onlyDigits = e.target.value.replace(/[^\d]/g, "");
+    const n = onlyDigits === "" ? 1 : Number(onlyDigits);
+    setQty(clampQty(n));
   };
 
-  const minusCount = () => {
-    if (count > 0) {
-      setCount((prev) => prev - 1);
-    }
+  const onKeyNav = (e) => {
+    if (!gallery.length) return;
+    if (e.key === "ArrowRight") setActiveIdx((i) => (i + 1) % gallery.length);
+    if (e.key === "ArrowLeft") setActiveIdx((i) => (i - 1 + gallery.length) % gallery.length);
   };
 
-  console.log("data", data);
+  const mainImage = gallery[activeIdx] || FALLBACK_IMG;
 
-  return (
-    <div className="2xl:container 2xl:mx-auto lg:px-20  md:px-6 px-4 ">
-      <div className="flex justify-center items-center lg:flex-row flex-col gap-8">
-        {/* <!-- Description Div --> */}
-        <div className="  w-full sm:w-96 md:w-8/12 lg:w-6/12 items-center">
-          <p className=" focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-800 font-normal text-base leading-4 text-gray-600">
-            {data?.category?.name}
-          </p>
-          <h2 className="font-semibold lg:text-4xl text-3xl lg:leading-9 leading-7 text-gray-800 mt-4">
-            {data?.name}
-          </h2>
-
-          <div className=" flex flex-row justify-between  mt-5">
-            <div className=" flex flex-row space-x-3">
-              <svg
-                className=" cursor-pointer"
-                width="20"
-                height="21"
-                viewBox="0 0 20 21"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  d="M15.5598 20C15.3998 20.0006 15.2421 19.9629 15.0998 19.89L9.99976 17.22L4.89976 19.89C4.73416 19.977 4.54744 20.0159 4.36084 20.0022C4.17424 19.9884 3.99524 19.9226 3.84419 19.8122C3.69314 19.7017 3.5761 19.5511 3.50638 19.3775C3.43665 19.2039 3.41704 19.0142 3.44976 18.83L4.44976 13.2L0.329763 9.19996C0.20122 9.07168 0.110034 8.91083 0.0659903 8.73465C0.0219465 8.55848 0.0267076 8.37363 0.0797626 8.19996C0.137723 8.02223 0.244339 7.86431 0.387513 7.74412C0.530687 7.62392 0.704685 7.54627 0.889763 7.51996L6.58976 6.68996L9.09976 1.55996C9.18165 1.39089 9.3095 1.2483 9.46867 1.14853C9.62785 1.04876 9.81191 0.99585 9.99976 0.99585C10.1876 0.99585 10.3717 1.04876 10.5309 1.14853C10.69 1.2483 10.8179 1.39089 10.8998 1.55996L13.4398 6.67996L19.1398 7.50996C19.3248 7.53627 19.4988 7.61392 19.642 7.73412C19.7852 7.85431 19.8918 8.01223 19.9498 8.18996C20.0028 8.36363 20.0076 8.54848 19.9635 8.72465C19.9195 8.90083 19.8283 9.06168 19.6998 9.18996L15.5798 13.19L16.5798 18.82C16.6155 19.0074 16.5968 19.2012 16.5259 19.3784C16.455 19.5556 16.3349 19.7088 16.1798 19.82C15.9987 19.9469 15.7806 20.0102 15.5598 20Z"
-                  fill="#1F2937"
-                />
-              </svg>
-              <svg
-                className=" cursor-pointer"
-                width="20"
-                height="21"
-                viewBox="0 0 20 21"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  d="M15.5598 20C15.3998 20.0006 15.2421 19.9629 15.0998 19.89L9.99976 17.22L4.89976 19.89C4.73416 19.977 4.54744 20.0159 4.36084 20.0022C4.17424 19.9884 3.99524 19.9226 3.84419 19.8122C3.69314 19.7017 3.5761 19.5511 3.50638 19.3775C3.43665 19.2039 3.41704 19.0142 3.44976 18.83L4.44976 13.2L0.329763 9.19996C0.20122 9.07168 0.110034 8.91083 0.0659903 8.73465C0.0219465 8.55848 0.0267076 8.37363 0.0797626 8.19996C0.137723 8.02223 0.244339 7.86431 0.387513 7.74412C0.530687 7.62392 0.704685 7.54627 0.889763 7.51996L6.58976 6.68996L9.09976 1.55996C9.18165 1.39089 9.3095 1.2483 9.46867 1.14853C9.62785 1.04876 9.81191 0.99585 9.99976 0.99585C10.1876 0.99585 10.3717 1.04876 10.5309 1.14853C10.69 1.2483 10.8179 1.39089 10.8998 1.55996L13.4398 6.67996L19.1398 7.50996C19.3248 7.53627 19.4988 7.61392 19.642 7.73412C19.7852 7.85431 19.8918 8.01223 19.9498 8.18996C20.0028 8.36363 20.0076 8.54848 19.9635 8.72465C19.9195 8.90083 19.8283 9.06168 19.6998 9.18996L15.5798 13.19L16.5798 18.82C16.6155 19.0074 16.5968 19.2012 16.5259 19.3784C16.455 19.5556 16.3349 19.7088 16.1798 19.82C15.9987 19.9469 15.7806 20.0102 15.5598 20Z"
-                  fill="#1F2937"
-                />
-              </svg>
-              <svg
-                className=" cursor-pointer"
-                width="20"
-                height="21"
-                viewBox="0 0 20 21"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  d="M15.5598 20C15.3998 20.0006 15.2421 19.9629 15.0998 19.89L9.99976 17.22L4.89976 19.89C4.73416 19.977 4.54744 20.0159 4.36084 20.0022C4.17424 19.9884 3.99524 19.9226 3.84419 19.8122C3.69314 19.7017 3.5761 19.5511 3.50638 19.3775C3.43665 19.2039 3.41704 19.0142 3.44976 18.83L4.44976 13.2L0.329763 9.19996C0.20122 9.07168 0.110034 8.91083 0.0659903 8.73465C0.0219465 8.55848 0.0267076 8.37363 0.0797626 8.19996C0.137723 8.02223 0.244339 7.86431 0.387513 7.74412C0.530687 7.62392 0.704685 7.54627 0.889763 7.51996L6.58976 6.68996L9.09976 1.55996C9.18165 1.39089 9.3095 1.2483 9.46867 1.14853C9.62785 1.04876 9.81191 0.99585 9.99976 0.99585C10.1876 0.99585 10.3717 1.04876 10.5309 1.14853C10.69 1.2483 10.8179 1.39089 10.8998 1.55996L13.4398 6.67996L19.1398 7.50996C19.3248 7.53627 19.4988 7.61392 19.642 7.73412C19.7852 7.85431 19.8918 8.01223 19.9498 8.18996C20.0028 8.36363 20.0076 8.54848 19.9635 8.72465C19.9195 8.90083 19.8283 9.06168 19.6998 9.18996L15.5798 13.19L16.5798 18.82C16.6155 19.0074 16.5968 19.2012 16.5259 19.3784C16.455 19.5556 16.3349 19.7088 16.1798 19.82C15.9987 19.9469 15.7806 20.0102 15.5598 20Z"
-                  fill="#1F2937"
-                />
-              </svg>
-              <svg
-                className=" cursor-pointer"
-                width="20"
-                height="21"
-                viewBox="0 0 20 21"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  d="M15.5598 20C15.3998 20.0006 15.2421 19.9629 15.0998 19.89L9.99976 17.22L4.89976 19.89C4.73416 19.977 4.54744 20.0159 4.36084 20.0022C4.17424 19.9884 3.99524 19.9226 3.84419 19.8122C3.69314 19.7017 3.5761 19.5511 3.50638 19.3775C3.43665 19.2039 3.41704 19.0142 3.44976 18.83L4.44976 13.2L0.329763 9.19996C0.20122 9.07168 0.110034 8.91083 0.0659903 8.73465C0.0219465 8.55848 0.0267076 8.37363 0.0797626 8.19996C0.137723 8.02223 0.244339 7.86431 0.387513 7.74412C0.530687 7.62392 0.704685 7.54627 0.889763 7.51996L6.58976 6.68996L9.09976 1.55996C9.18165 1.39089 9.3095 1.2483 9.46867 1.14853C9.62785 1.04876 9.81191 0.99585 9.99976 0.99585C10.1876 0.99585 10.3717 1.04876 10.5309 1.14853C10.69 1.2483 10.8179 1.39089 10.8998 1.55996L13.4398 6.67996L19.1398 7.50996C19.3248 7.53627 19.4988 7.61392 19.642 7.73412C19.7852 7.85431 19.8918 8.01223 19.9498 8.18996C20.0028 8.36363 20.0076 8.54848 19.9635 8.72465C19.9195 8.90083 19.8283 9.06168 19.6998 9.18996L15.5798 13.19L16.5798 18.82C16.6155 19.0074 16.5968 19.2012 16.5259 19.3784C16.455 19.5556 16.3349 19.7088 16.1798 19.82C15.9987 19.9469 15.7806 20.0102 15.5598 20Z"
-                  fill="#1F2937"
-                />
-              </svg>
-              <svg
-                className=" cursor-pointer"
-                width="20"
-                height="21"
-                viewBox="0 0 20 21"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  d="M15.5598 20C15.3998 20.0006 15.2421 19.9629 15.0998 19.89L9.99976 17.22L4.89976 19.89C4.73416 19.977 4.54744 20.0159 4.36084 20.0022C4.17424 19.9884 3.99524 19.9226 3.84419 19.8122C3.69314 19.7017 3.5761 19.5511 3.50638 19.3775C3.43665 19.2039 3.41704 19.0142 3.44976 18.83L4.44976 13.2L0.329763 9.19996C0.20122 9.07168 0.110034 8.91083 0.0659903 8.73465C0.0219465 8.55848 0.0267076 8.37363 0.0797626 8.19996C0.137723 8.02223 0.244339 7.86431 0.387513 7.74412C0.530687 7.62392 0.704685 7.54627 0.889763 7.51996L6.58976 6.68996L9.09976 1.55996C9.18165 1.39089 9.3095 1.2483 9.46867 1.14853C9.62785 1.04876 9.81191 0.99585 9.99976 0.99585C10.1876 0.99585 10.3717 1.04876 10.5309 1.14853C10.69 1.2483 10.8179 1.39089 10.8998 1.55996L13.4398 6.67996L19.1398 7.50996C19.3248 7.53627 19.4988 7.61392 19.642 7.73412C19.7852 7.85431 19.8918 8.01223 19.9498 8.18996C20.0028 8.36363 20.0076 8.54848 19.9635 8.72465C19.9195 8.90083 19.8283 9.06168 19.6998 9.18996L15.5798 13.19L16.5798 18.82C16.6155 19.0074 16.5968 19.2012 16.5259 19.3784C16.455 19.5556 16.3349 19.7088 16.1798 19.82C15.9987 19.9469 15.7806 20.0102 15.5598 20ZM9.99976 15.1C10.1601 15.0959 10.3186 15.1338 10.4598 15.21L14.2298 17.21L13.5098 13C13.4818 12.8392 13.4936 12.6741 13.5442 12.5189C13.5947 12.3638 13.6825 12.2234 13.7998 12.11L16.7998 9.17996L12.5998 8.55996C12.4457 8.52895 12.3012 8.46209 12.1778 8.3648C12.0545 8.2675 11.9558 8.14251 11.8898 7.99996L9.99976 4.24996L8.10976 7.99996C8.03741 8.14366 7.93145 8.26779 7.80089 8.3618C7.67032 8.45581 7.51899 8.51692 7.35976 8.53996L3.15976 9.15996L6.15976 12.09C6.27704 12.2034 6.36478 12.3438 6.41533 12.4989C6.46588 12.6541 6.4777 12.8192 6.44976 12.98L5.72976 17.14L9.49976 15.14C9.65951 15.0806 9.83261 15.0667 9.99976 15.1Z"
-                  fill="#1F2937"
-                />
-              </svg>
+  // --- Loading skeleton
+  if (isLoading) {
+    return (
+      <div className="max-w-6xl mx-auto p-4 lg:p-6">
+        <div className="grid lg:grid-cols-2 gap-8 animate-pulse">
+          <div className="aspect-square bg-gray-200 rounded-2xl" />
+          <div className="space-y-4">
+            <div className="w-40 h-5 bg-gray-200 rounded" />
+            <div className="w-3/4 h-8 bg-gray-200 rounded" />
+            <div className="w-24 h-6 bg-gray-200 rounded" />
+            <div className="w-full h-24 bg-gray-200 rounded" />
+            <div className="flex gap-2">
+              <div className="w-28 h-10 bg-gray-200 rounded" />
+              <div className="w-40 h-10 bg-gray-200 rounded" />
             </div>
-            <p className="focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-800 font-normal text-base leading-4 text-gray-700 hover:underline hover:text-gray-800 duration-100 cursor-pointer">
-              22 reviews
-            </p>
-          </div>
-
-          <p className=" font-normal text-base leading-6 text-gray-600 mt-7">
-            {data?.description}
-          </p>
-          <p className="text-teal-600 font-semibold lg:text-2xl text-xl lg:leading-6 leading-5 mt-6 ">
-            $ {data?.priceOut}
-          </p>
-
-          <div className="lg:mt-11 mt-10">
-            <div className="flex flex-row justify-between">
-              <p className=" font-medium text-base leading-4 text-gray-600">
-                Select quantity
-              </p>
-              <div className="flex">
-                <span
-                  onClick={minusCount}
-                  className="focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-800 cursor-pointer border border-gray-300 border-r-0 w-7 h-7 flex items-center justify-center pb-1"
-                >
-                  -
-                </span>
-                <input
-                  id="counter"
-                  aria-label="input"
-                  className="border border-gray-300 h-full text-center w-14 pb-1"
-                  type="text"
-                  value={count}
-                  onChange={(e) => e.target.value}
-                />
-                <span
-                  onClick={addCount}
-                  className="focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-800 cursor-pointer border border-gray-300 border-l-0 w-7 h-7 flex items-center justify-center pb-1 "
-                >
-                  +
-                </span>
-              </div>
-            </div>
-            <hr className=" bg-gray-200 w-full my-2" />
-            <div className=" flex flex-row justify-between items-center mt-4">
-              <p className="font-medium text-base leading-4 text-gray-600">
-                Dimensions
-              </p>
-              <svg
-                onClick={() => setRotate(!rotate)}
-                id="rotateSVG"
-                className={
-                  "focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-800 cursor-pointer transform " +
-                  (rotate ? "rotate-180" : "rotate-0")
-                }
-                width="10"
-                height="6"
-                viewBox="0 0 10 6"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  d="M9 1L5 5L1 1"
-                  stroke="#4B5563"
-                  strokeWidth="1.25"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </div>
-            <hr className=" bg-gray-200 w-full mt-4" />
-          </div>
-
-          <button className="focus:outline-none focus:ring-2 hover:bg-black focus:ring-offset-2 focus:ring-gray-800 font-medium text-base leading-4 text-white bg-gray-800 w-full py-5 lg:mt-12 mt-6">
-            Add to Card
-          </button>
-        </div>
-
-        {/* <!-- Preview Images Div For larger Screen--> */}
-        <div className=" w-full sm:w-96 md:w-8/12  lg:w-5/12 flex lg:flex-row flex-col flex-grow-1 lg:gap-4 sm:gap-6 gap-4">
-          <div className="p-2 w-full rounded-2xl lg:w-full bg-gray-100 flex justify-center items-center">
-            <img
-              className="w-full h-full object-cover rounded-xl "
-              src={data?.thumbnail}
-              alt="Wooden Chair Preview"
-            />
-          </div>
-          <div className="w-full lg:w-5/12 grid lg:grid-cols-1 sm:grid-cols-4 grid-cols-2 gap-4">
-            {data?.images?.map((image, index) => (
-              <div
-                key={index}
-                className="p-2 bg-slate-100 rounded-2xl flex justify-center items-center"
-              >
-                <img
-                  className="w-full h-full object-cover rounded-xl"
-                  src={image}
-                  alt="Wooden chair - preview 1"
-                />
-              </div>
-            ))}
           </div>
         </div>
       </div>
+    );
+  }
+
+  // --- Error / Empty
+  if (isError || !data) {
+    return (
+      <div className="max-w-3xl mx-auto p-4">
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          Failed to load product.
+          <button
+            onClick={() => refetch()}
+            className="ml-2 underline hover:opacity-80"
+          >
+            Retry
+          </button>
+          <button
+            onClick={() => navigate(-1)}
+            className="ml-3 underline hover:opacity-80"
+          >
+            Go Back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-6xl mx-auto p-4 lg:p-6">
+      {/* Breadcrumbs */}
+      <nav className="mb-4 text-sm text-gray-500">
+        <Link to="/" className="hover:underline">Home</Link>
+        <span className="mx-2">/</span>
+        <Link
+          to={`/category/${data?.category?.slug || ""}`}
+          className="hover:underline"
+        >
+          {data?.category?.name || "Category"}
+        </Link>
+        <span className="mx-2">/</span>
+        <span className="text-gray-700 line-clamp-1">{data?.name}</span>
+      </nav>
+
+      <div className="grid lg:grid-cols-2 gap-8">
+        {/* Left: Gallery (sticky on desktop) */}
+        <div
+          className="flex flex-col gap-3 lg:sticky lg:top-24"
+          onKeyDown={onKeyNav}
+          tabIndex={0}
+          aria-label="Product image gallery"
+        >
+          <div className="w-full bg-gray-50 rounded-2xl p-2 relative">
+            {!hasStock && (
+              <span className="absolute left-3 top-3 z-10 rounded-full bg-gray-900/80 px-3 py-1 text-xs text-white">
+                Out of stock
+              </span>
+            )}
+            <img
+              src={mainImage}
+              alt={data?.name}
+              className="w-full aspect-square object-contain rounded-xl bg-white"
+              onError={(e) => (e.currentTarget.src = FALLBACK_IMG)}
+              draggable={false}
+            />
+          </div>
+
+          {gallery.length > 1 && (
+            // Thumbs: grid on desktop, horizontal scroll on mobile
+            <div className="gap-3 grid grid-cols-5 max-lg:grid-cols-4 max-sm:grid-cols-3 overflow-x-auto no-scrollbar">
+              {gallery.map((img, idx) => (
+                <button
+                  key={`${img}-${idx}`}
+                  type="button"
+                  onClick={() => setActiveIdx(idx)}
+                  aria-label={`Select image ${idx + 1}`}
+                  className={`rounded-xl border p-1 bg-gray-50 hover:shadow-sm transition focus:outline-none focus:ring-2 focus:ring-blue-300 ${
+                    idx === activeIdx
+                      ? "border-blue-500 ring-2 ring-blue-200"
+                      : "border-gray-200"
+                  }`}
+                >
+                  <img
+                    src={img}
+                    alt={`thumbnail ${idx + 1}`}
+                    className="aspect-square w-full object-contain rounded-lg bg-white"
+                    onError={(e) => (e.currentTarget.src = FALLBACK_IMG)}
+                    draggable={false}
+                  />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Right: Details */}
+        <section aria-labelledby="product-title">
+          <p className="text-xs sm:text-sm text-gray-600">{data?.brand?.name}</p>
+          <h1 id="product-title" className="mt-2 text-2xl lg:text-3xl font-semibold text-gray-900">
+            {data?.name}
+          </h1>
+
+          {/* Ratings placeholder */}
+          <div className="mt-3 flex items-center gap-2 text-sm text-gray-600">
+            <div className="flex" aria-label="Rating: 4.5 out of 5">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <svg
+                  key={i}
+                  className="w-4 h-4 text-yellow-400"
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                  aria-hidden="true"
+                >
+                  <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.802 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118L10 13.347l-2.985 2.134c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L3.38 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                </svg>
+              ))}
+            </div>
+            <button className="hover:underline focus:underline">22 reviews</button>
+          </div>
+
+          {/* Price */}
+          <div className="mt-5 flex items-end gap-3">
+            <span className="text-teal-600 font-bold text-2xl">
+              {currency(discounted)}
+            </span>
+            {hasDiscount && (
+              <>
+                <span className="text-gray-400 line-through">
+                  {currency(priceOut)}
+                </span>
+                <span className="text-xs rounded bg-red-100 text-red-600 px-2 py-1 font-semibold">
+                  -{discountPct}%
+                </span>
+              </>
+            )}
+            {isFetching && (
+              <span className="text-xs text-gray-400">updating…</span>
+            )}
+          </div>
+
+          {/* Short description */}
+          {data?.shortDescription && (
+            <p className="mt-3 text-gray-700">{data.shortDescription}</p>
+          )}
+          <p className="mt-3 text-gray-700 leading-7 whitespace-pre-line">
+            {data?.description}
+          </p>
+
+          {/* Stock/Status */}
+          <div className="mt-4">
+            {hasStock ? (
+              <span className="inline-flex items-center gap-2 rounded-full bg-green-50 px-3 py-1 text-green-700 text-sm">
+                <span className="h-2 w-2 rounded-full bg-green-500" />
+                In stock ({stock})
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-2 rounded-full bg-gray-100 px-3 py-1 text-gray-600 text-sm">
+                <span className="h-2 w-2 rounded-full bg-gray-400" />
+                Out of stock
+              </span>
+            )}
+          </div>
+
+          {/* Quantity */}
+          <div className="mt-6">
+            <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="qty">
+              Quantity
+            </label>
+            <div className="inline-flex items-center rounded border border-gray-300 overflow-hidden">
+              <button
+                type="button"
+                onClick={sub}
+                className="px-3 py-2 hover:bg-gray-50 disabled:opacity-50"
+                disabled={!hasStock}
+                aria-label="Decrease quantity"
+              >
+                −
+              </button>
+              <input
+                id="qty"
+                className="w-16 text-center outline-none py-2"
+                value={qty}
+                onChange={onQtyChange}
+                inputMode="numeric"
+                pattern="[0-9]*"
+                disabled={!hasStock}
+                aria-live="polite"
+              />
+              <button
+                type="button"
+                onClick={add}
+                className="px-3 py-2 hover:bg-gray-50 disabled:opacity-50"
+                disabled={!hasStock}
+                aria-label="Increase quantity"
+              >
+                +
+              </button>
+            </div>
+            <p className="mt-1 text-xs text-gray-500">Max: {Math.max(stock, 1)}</p>
+          </div>
+
+          {/* CTA */}
+          <div className="mt-6 flex flex-col sm:flex-row gap-3">
+            <button
+              type="button"
+              disabled={!hasStock}
+              className={`w-full sm:w-auto inline-flex items-center justify-center rounded-lg px-5 py-3 text-white font-medium transition focus:outline-none focus:ring-2 focus:ring-gray-300 ${
+                hasStock ? "bg-gray-900 hover:bg-black" : "bg-gray-400 cursor-not-allowed"
+              }`}
+              onClick={() => {
+                // TODO: wire to your cart action
+                // addToCart({ id, qty })
+              }}
+              aria-disabled={!hasStock}
+            >
+              Add to Cart
+            </button>
+            <button
+              type="button"
+              className="w-full sm:w-auto inline-flex items-center justify-center rounded-lg px-5 py-3 border border-gray-300 text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-200"
+              onClick={() => navigate(-1)}
+            >
+              Back
+            </button>
+          </div>
+
+          {/* Collapsible Specifications */}
+          <div className="mt-8 border-t pt-4">
+            <details className="group">
+              <summary className="flex cursor-pointer list-none items-center justify-between text-gray-800 font-medium">
+                Specifications
+                <span className="transition-transform group-open:rotate-180">
+                  <svg width="16" height="16" viewBox="0 0 10 6" fill="none" aria-hidden="true">
+                    <path
+                      d="M9 1L5 5L1 1"
+                      stroke="#4B5563"
+                      strokeWidth="1.25"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </span>
+              </summary>
+
+              <div className="mt-3 text-sm text-gray-700 grid grid-cols-1 sm:grid-cols-2 gap-y-2 gap-x-6">
+                <Spec label="Processor" value={data?.computerSpec?.processor} />
+                <Spec label="RAM" value={data?.computerSpec?.ram} />
+                <Spec label="Storage" value={data?.computerSpec?.storage} />
+                <Spec label="GPU" value={data?.computerSpec?.gpu} />
+                <Spec label="OS" value={data?.computerSpec?.os} />
+                <Spec label="Screen" value={data?.computerSpec?.screenSize} />
+                <Spec label="Battery" value={data?.computerSpec?.battery} />
+              </div>
+            </details>
+          </div>
+
+          {/* Trust badges / policies */}
+          <div className="mt-6 grid sm:grid-cols-3 gap-3 text-xs text-gray-600">
+            <Badge>🚚 Fast shipping</Badge>
+            <Badge>🔄 7-day returns</Badge>
+            <Badge>🔒 Secure checkout</Badge>
+          </div>
+        </section>
+      </div>
     </div>
   );
-};
+}
 
-export default ProductDetail;
+function Spec({ label, value }) {
+  return (
+    <div className="flex justify-between sm:justify-start sm:gap-3">
+      <span className="text-gray-500">{label}:</span>
+      <span className="font-medium">{value ?? "N/A"}</span>
+    </div>
+  );
+}
+
+function Badge({ children }) {
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-center">
+      {children}
+    </div>
+  );
+}
+
+/* Tailwind helpers (optional)
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+*/
